@@ -1,0 +1,167 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(storyId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/stories/$(storyId)/members/$(request.auth.uid));
+    }
+
+    function memberRole(storyId) {
+      return get(/databases/$(database)/documents/stories/$(storyId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isOwner(storyId) {
+      return isMember(storyId) && memberRole(storyId) == 'owner';
+    }
+
+    function story(storyId) {
+      return get(/databases/$(database)/documents/stories/$(storyId)).data;
+    }
+
+    function canViewStory(storyId) {
+      return story(storyId).visibility == 'public' || isMember(storyId);
+    }
+
+    function hasProposedCurrentRound(storyId) {
+      let s = story(storyId);
+      return exists(/databases/$(database)/documents/stories/$(storyId)/rounds/$(s.currentRoundId)/proposals/$(request.auth.uid));
+    }
+
+    function roundIsOpen(storyId, roundId) {
+      return get(/databases/$(database)/documents/stories/$(storyId)/rounds/$(roundId)).data.status == 'open';
+    }
+
+    // ───────────── users ─────────────
+    match /users/{uid} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSignedIn() && (
+        (request.auth.uid == uid
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['score']))
+        ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['score'])
+          && request.resource.data.score == resource.data.score + 1)
+      );
+      allow delete: if false;
+
+      match /memberships/{storyId} {
+        allow read, write: if isSignedIn() && uid == request.auth.uid;
+      }
+    }
+
+    // ───────────── stories ─────────────
+    match /stories/{storyId} {
+      allow read: if resource.data.visibility == 'public' || isMember(storyId);
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.status == 'open'
+                    && request.resource.data.currentRound == 1;
+      allow update: if isOwner(storyId)
+                    || (isMember(storyId) && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['status', 'completedAt', 'currentRound', 'currentRoundId']));
+      allow delete: if isOwner(storyId);
+
+      match /members/{uid} {
+        allow read: if canViewStory(storyId);
+        allow create: if isSignedIn() && (
+          (uid == request.auth.uid && request.resource.data.role == 'owner')
+          ||
+          (uid == request.auth.uid && request.resource.data.role == 'member'
+            && story(storyId).visibility == 'public'
+            && story(storyId).status == 'open')
+          ||
+          (isOwner(storyId) && request.resource.data.role == 'member')
+        );
+        allow delete: if isSignedIn() && resource.data.role != 'owner'
+          && (uid == request.auth.uid || isOwner(storyId));
+        allow update: if false;
+      }
+
+      match /paragraphs/{position} {
+        allow read: if canViewStory(storyId) && (
+          position == '0000' ||
+          story(storyId).status == 'completed' ||
+          story(storyId).blindMode == false ||
+          hasProposedCurrentRound(storyId)
+        );
+        allow create: if isSignedIn() && (
+          (position == '0000' && isOwner(storyId))
+          ||
+          (position != '0000'
+            && isMember(storyId)
+            && get(/databases/$(database)/documents/stories/$(storyId)/rounds/$(story(storyId).currentRoundId)).data.winnerId != null)
+        );
+        allow update: if position == '0000' && isOwner(storyId)
+                      && story(storyId).status == 'open';
+        allow delete: if false;
+      }
+
+      match /rounds/{roundId} {
+        allow read: if canViewStory(storyId);
+        allow create: if isMember(storyId);
+        allow update: if isMember(storyId) && resource.data.status == 'open';
+        allow delete: if false;
+
+        match /voters/{voterId} {
+          allow read: if isMember(storyId);
+          allow create, update: if isSignedIn()
+            && voterId == request.auth.uid
+            && isMember(storyId)
+            && roundIsOpen(storyId, roundId)
+            && request.resource.data.proposalId != request.auth.uid;
+          allow delete: if isSignedIn() && voterId == request.auth.uid
+            && roundIsOpen(storyId, roundId);
+        }
+
+        match /proposals/{authorId} {
+          allow read: if isMember(storyId)
+            || (resource.data.status != 'pending' && canViewStory(storyId));
+          allow create: if isSignedIn()
+            && authorId == request.auth.uid
+            && isMember(storyId)
+            && roundIsOpen(storyId, roundId);
+          allow update: if isSignedIn() && (
+            (authorId == request.auth.uid
+              && roundIsOpen(storyId, roundId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'createdAt']))
+            ||
+            (isMember(storyId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'voteCount']))
+          );
+          allow delete: if false;
+        }
+      }
+
+      match /reactions/{reactionId} {
+        allow read: if canViewStory(storyId);
+        allow create: if isSignedIn()
+          && request.resource.data.userId == request.auth.uid
+          && story(storyId).status == 'completed'
+          && canViewStory(storyId);
+        allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      }
+
+      match /comments/{commentId} {
+        allow read: if canViewStory(storyId);
+        allow create: if isSignedIn()
+          && request.resource.data.userId == request.auth.uid
+          && story(storyId).status == 'completed'
+          && canViewStory(storyId);
+        allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      }
+    }
+
+    match /notifications/{notifId} {
+      allow read, update, delete: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isMember(request.resource.data.storyId)
+        && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/members/$(request.resource.data.userId));
+    }
+  }
+}
