@@ -6,8 +6,10 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
+  Alert,
+  TextInput,
 } from "react-native";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, type Timestamp } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import {
   useFonts,
@@ -19,21 +21,32 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from "@expo-google-fonts/plus-jakarta-sans";
+import { Image } from "expo-image";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
+import { useMyStories } from "../../hooks/useMyStories";
 import AppHeader from "../../components/AppHeader";
 import { COLORS, FONTS } from "../../theme/colors";
-import { Image } from "expo-image";
-import { Alert } from "react-native";
-import { updateAvatarUrl } from "../../lib/users";
+import { updateAvatarUrl, updateProfile } from "../../lib/users";
 import { pickAvatarImage, uploadAvatarImage } from "../../lib/upload";
+
+const MAX_BIO_LENGTH = 160;
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const [score, setScore] = useState<number | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [bio, setBio] = useState<string | null>(null);
+  const [createdAt, setCreatedAt] = useState<Timestamp | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftUsername, setDraftUsername] = useState("");
+  const [draftBio, setDraftBio] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const myStories = useMyStories(user?.uid);
+  const ongoingCount = myStories.filter((s) => s.status === "open").length;
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_700Bold,
@@ -50,7 +63,9 @@ export default function ProfileScreen() {
         const data = snap.data();
         setScore(data.score ?? 0);
         setUsername(data.username ?? null);
-        setAvatarUrl(data.avatarUrl ?? null); // suppose que ce champ existe déjà ou existera
+        setBio(data.bio ?? null);
+        setCreatedAt(data.createdAt ?? null);
+        setAvatarUrl(data.avatarUrl ?? null);
       }
     });
   }, [user]);
@@ -66,29 +81,72 @@ export default function ProfileScreen() {
   const displayName = username ?? user.email?.split("@")[0] ?? "Utilisateur";
   const initial = displayName.charAt(0).toUpperCase();
 
+  const s = score ?? 0;
+  const badgeCount = (s >= 1 ? 1 : 0) + (s >= 5 ? 1 : 0) + (s >= 10 ? 1 : 0);
+
+  const memberSince = createdAt
+    ? createdAt.toDate().toLocaleDateString("fr-FR", {
+        month: "long",
+        year: "numeric",
+      })
+    : null;
+
   async function handleChangeAvatar() {
     if (!user) return;
     try {
       const localUri = await pickAvatarImage();
-      if (!localUri) return; // annulé
+      if (!localUri) return;
       setUploadingAvatar(true);
       const url = await uploadAvatarImage(localUri, user.uid);
       await updateAvatarUrl(user.uid, url);
-      // Pas besoin de setAvatarUrl : le onSnapshot du profil le met à jour tout seul.
     } catch (err) {
       Alert.alert(
         "Erreur",
-        err instanceof Error ? err.message : "Erreur inconnue"
+        err instanceof Error ? err.message : "Erreur inconnue",
       );
     } finally {
       setUploadingAvatar(false);
     }
   }
+
+  function startEditing() {
+    setDraftUsername(username ?? "");
+    setDraftBio(bio ?? "");
+    setEditing(true);
+  }
+
+  async function handleSaveProfile() {
+    if (!user) return;
+    const trimmedName = draftUsername.trim();
+    if (trimmedName.length < 2) {
+      Alert.alert("Pseudo trop court", "2 caractères minimum.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateProfile(user.uid, {
+        username: trimmedName,
+        bio: draftBio.trim(),
+      });
+      setEditing(false);
+    } catch (err) {
+      Alert.alert(
+        "Erreur",
+        err instanceof Error ? err.message : "Erreur inconnue",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <AppHeader title="Mon Profil" />
 
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Avatar */}
         <View style={styles.avatarWrapper}>
           <View style={styles.avatarRing}>
@@ -120,8 +178,81 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.username}>{displayName}</Text>
-        <Text style={styles.email}>{user.email}</Text>
+        {editing ? (
+          <View style={styles.editBlock}>
+            <Text style={styles.editLabel}>PSEUDO</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                value={draftUsername}
+                onChangeText={setDraftUsername}
+                placeholder="Ton pseudo"
+                placeholderTextColor={COLORS.textMuted}
+                maxLength={30}
+              />
+            </View>
+
+            <Text style={[styles.editLabel, { marginTop: 16 }]}>BIO</Text>
+            <View style={[styles.inputWrapper, styles.bioWrapper]}>
+              <TextInput
+                style={[styles.input, styles.bioInput]}
+                value={draftBio}
+                onChangeText={setDraftBio}
+                placeholder="Quelques mots sur toi..."
+                placeholderTextColor={COLORS.textMuted}
+                multiline
+                maxLength={MAX_BIO_LENGTH}
+                textAlignVertical="top"
+              />
+            </View>
+            <Text style={styles.charCount}>
+              {draftBio.length} / {MAX_BIO_LENGTH}
+            </Text>
+
+            <View style={styles.editActions}>
+              <Pressable
+                style={styles.cancelButton}
+                onPress={() => setEditing(false)}
+                disabled={saving}
+              >
+                <Text style={styles.cancelButtonText}>Annuler</Text>
+              </Pressable>
+              <Pressable
+                style={styles.saveButton}
+                onPress={handleSaveProfile}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator color={COLORS.goldDark} />
+                ) : (
+                  <Text style={styles.saveButtonText}>Enregistrer</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={styles.nameRow}>
+              <Text style={styles.username}>{displayName}</Text>
+              <Pressable onPress={startEditing} hitSlop={8}>
+                <Ionicons
+                  name="create-outline"
+                  size={18}
+                  color={COLORS.gold}
+                />
+              </Pressable>
+            </View>
+            <Text style={styles.email}>{user.email}</Text>
+            {memberSince && (
+              <Text style={styles.memberSince}>Membre depuis {memberSince}</Text>
+            )}
+            {bio ? (
+              <Text style={styles.bio}>{bio}</Text>
+            ) : (
+              <Text style={styles.bioEmpty}>Aucune bio pour l'instant.</Text>
+            )}
+          </>
+        )}
 
         {/* Impact littéraire */}
         <View style={styles.impactCard}>
@@ -140,23 +271,19 @@ export default function ProfileScreen() {
         {/* Stats row */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Histoires</Text>
-            <Text style={styles.statValue}>—</Text>
-            <Text style={styles.statSub}>Complétées avec succès</Text>
+            <Text style={styles.statLabel}>En cours</Text>
+            <Text style={styles.statValue}>{ongoingCount}</Text>
+            <Text style={styles.statSub}>Histoires actives</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Total Votes</Text>
-            <Text style={styles.statValue}>—</Text>
+            <Text style={styles.statLabel}>Trophées</Text>
+            <Text style={styles.statValue}>{badgeCount}</Text>
             <View style={styles.statSubRow}>
               <Ionicons name="star" size={11} color={COLORS.gold} />
-              <Text style={styles.statSub}>Reçus par la communauté</Text>
+              <Text style={styles.statSub}>Débloqués</Text>
             </View>
           </View>
         </View>
-        {/* TODO backend : ces deux stats nécessitent un compteur d'histoires
-            complétées et un total de votes reçus, agrégés côté Firestore
-            (ex. via une Cloud Function qui incrémente des champs sur /users/{uid}
-            quand une histoire passe à "completed" ou qu'un vote est casté). */}
 
         {/* Trophées */}
         <View style={styles.sectionHeaderRow}>
@@ -164,38 +291,29 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.badgeRow}>
-          {(score ?? 0) >= 1 && (
+          {s >= 1 && (
             <View style={styles.badge}>
               <Ionicons name="ribbon" size={20} color={COLORS.gold} />
               <Text style={styles.badgeLabel}>Première plume</Text>
             </View>
           )}
-          {(score ?? 0) >= 5 && (
+          {s >= 5 && (
             <View style={styles.badge}>
               <Ionicons name="star" size={20} color={COLORS.gold} />
               <Text style={styles.badgeLabel}>Conteur confirmé</Text>
             </View>
           )}
-          {(score ?? 0) >= 10 && (
+          {s >= 10 && (
             <View style={styles.badge}>
               <Ionicons name="trophy" size={20} color={COLORS.gold} />
               <Text style={styles.badgeLabel}>Maître du récit</Text>
             </View>
           )}
-          {(score ?? 0) === 0 && (
+          {s === 0 && (
             <Text style={styles.trophyPlaceholderHint}>
               Fais retenir tes contributions pour débloquer des trophées.
             </Text>
           )}
-        </View>
-        {/* Menu */}
-        <View style={styles.menuGroup}>
-          <MenuRow icon="person-circle-outline" label="Modifier le profil" />
-          <MenuRow
-            icon="notifications-outline"
-            label="Paramètres de notification"
-          />
-          <MenuRow icon="shield-checkmark-outline" label="Confidentialité" />
         </View>
 
         <Pressable style={styles.signOutButton} onPress={signOut}>
@@ -204,16 +322,6 @@ export default function ProfileScreen() {
         </Pressable>
       </ScrollView>
     </View>
-  );
-}
-
-function MenuRow({ icon, label }: { icon: any; label: string }) {
-  return (
-    <Pressable style={styles.menuRow}>
-      <Ionicons name={icon} size={20} color={COLORS.white} />
-      <Text style={styles.menuLabel}>{label}</Text>
-      <Ionicons name="chevron-forward" size={18} color={COLORS.textMuted} />
-    </Pressable>
   );
 }
 
@@ -277,17 +385,116 @@ const styles = StyleSheet.create({
     borderColor: COLORS.bg,
   },
 
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+  },
   username: {
     fontFamily: FONTS.serifBold,
     fontSize: 24,
     color: COLORS.white,
-    marginTop: 16,
   },
   email: {
     fontFamily: FONTS.sans,
     fontSize: 13,
     color: COLORS.textMuted,
     marginTop: 4,
+  },
+  memberSince: {
+    fontFamily: FONTS.mono,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    color: COLORS.textLabel,
+    marginTop: 6,
+  },
+  bio: {
+    fontFamily: FONTS.serifItalic,
+    fontSize: 14,
+    color: COLORS.white,
+    textAlign: "center",
+    marginTop: 12,
+    lineHeight: 20,
+    paddingHorizontal: 8,
+  },
+  bioEmpty: {
+    fontFamily: FONTS.serifItalic,
+    fontSize: 13,
+    color: COLORS.textMuted,
+    marginTop: 12,
+  },
+
+  editBlock: {
+    width: "100%",
+    marginTop: 20,
+  },
+  editLabel: {
+    fontFamily: FONTS.mono,
+    fontSize: 11,
+    letterSpacing: 1,
+    color: COLORS.gold,
+    marginBottom: 8,
+  },
+  inputWrapper: {
+    backgroundColor: COLORS.input,
+    borderWidth: 1,
+    borderColor: COLORS.inputBorder,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 50,
+    justifyContent: "center",
+  },
+  bioWrapper: {
+    height: 90,
+    paddingVertical: 12,
+  },
+  input: {
+    fontFamily: FONTS.sans,
+    fontSize: 15,
+    color: COLORS.white,
+  },
+  bioInput: {
+    flex: 1,
+  },
+  charCount: {
+    fontFamily: FONTS.mono,
+    fontSize: 10,
+    color: COLORS.textLabel,
+    textAlign: "right",
+    marginTop: 6,
+  },
+  editActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  cancelButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.inputBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButtonText: {
+    fontFamily: FONTS.sansSemi,
+    fontSize: 14,
+    color: COLORS.textMuted,
+  },
+  saveButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: COLORS.gold,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveButtonText: {
+    fontFamily: FONTS.sansBold,
+    fontSize: 14,
+    color: COLORS.goldDark,
   },
 
   impactCard: {
@@ -405,41 +612,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.white,
   },
-  seeAll: {
-    fontFamily: FONTS.mono,
-    fontSize: 11,
-    letterSpacing: 0.5,
-    color: COLORS.gold,
-  },
   trophyPlaceholderHint: {
     fontFamily: FONTS.sans,
     fontSize: 13,
     color: COLORS.textMuted,
     lineHeight: 19,
     marginBottom: 8,
-  },
-
-  menuGroup: {
-    width: "100%",
-    gap: 10,
-    marginTop: 28,
-  },
-  menuRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  menuLabel: {
-    flex: 1,
-    fontFamily: FONTS.sans,
-    fontSize: 15,
-    color: COLORS.white,
   },
 
   signOutButton: {
