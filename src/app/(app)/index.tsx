@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useAuth } from "../../contexts/AuthContext";
 import { useMyStories } from "../../hooks/useMyStories";
 import { useCollectionOnce } from "../../hooks/useCollectionOnce";
@@ -64,23 +65,43 @@ export default function FeedScreen() {
             style={styles.card}
             onPress={() => router.push(`/story/${item.id}`)}
           >
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <View style={styles.cardMetaRow}>
-              <Ionicons
-                name={
-                  item.status === "completed"
-                    ? "checkmark-circle-outline"
-                    : "time-outline"
-                }
-                size={13}
-                color={COLORS.textMuted}
+            {item.coverUrl ? (
+              <Image
+                source={{ uri: item.coverUrl }}
+                style={styles.thumb}
+                contentFit="cover"
+                transition={200}
               />
-              <Text style={styles.cardMeta}>
-                {item.status === "completed"
-                  ? "Terminée"
-                  : `Tour ${item.currentRound}/${item.maxContributions}`}
-                {item.blindMode ? " · À l'aveugle" : ""}
+            ) : (
+              <View style={[styles.thumb, styles.thumbFallback]}>
+                <Ionicons
+                  name="book-outline"
+                  size={20}
+                  color={COLORS.textMuted}
+                />
+              </View>
+            )}
+            <View style={styles.cardBody}>
+              <Text style={styles.cardTitle} numberOfLines={1}>
+                {item.title}
               </Text>
+              <View style={styles.cardMetaRow}>
+                <Ionicons
+                  name={
+                    item.status === "completed"
+                      ? "checkmark-circle-outline"
+                      : "time-outline"
+                  }
+                  size={13}
+                  color={COLORS.textMuted}
+                />
+                <Text style={styles.cardMeta}>
+                  {item.status === "completed"
+                    ? "Terminée"
+                    : `Tour ${item.currentRound}/${item.maxContributions}`}
+                  {item.blindMode ? " · À l'aveugle" : ""}
+                </Text>
+              </View>
             </View>
           </Pressable>
         )}
@@ -125,11 +146,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     backgroundColor: COLORS.card,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     borderRadius: 14,
-    padding: 16,
+    padding: 12,
+  },
+  thumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+  },
+  thumbFallback: {
+    backgroundColor: COLORS.input,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardBody: {
+    flex: 1,
     gap: 6,
   },
   cardTitle: {

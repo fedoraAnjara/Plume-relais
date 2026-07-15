@@ -12,6 +12,7 @@ import {
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
+import { Image } from "expo-image";
 import {
   useFonts,
   PlayfairDisplay_700Bold,
@@ -24,7 +25,8 @@ import {
   PlusJakartaSans_700Bold,
 } from "@expo-google-fonts/plus-jakarta-sans";
 import { useAuth } from "../../contexts/AuthContext";
-import { createStory } from "../../lib/stories";
+import { createStory, updateStoryCover } from "../../lib/stories";
+import { pickImage, uploadCoverImage } from "../../lib/upload";
 import AppHeader from "../../components/AppHeader";
 import { COLORS, FONTS } from "../../theme/colors";
 
@@ -37,6 +39,7 @@ export default function CreateStoryScreen() {
   const [blindMode, setBlindMode] = useState(true);
   const [maxContributions, setMaxContributions] = useState(10);
   const [turnDurationHours, setTurnDurationHours] = useState(24);
+  const [coverUri, setCoverUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -47,6 +50,18 @@ export default function CreateStoryScreen() {
     PlusJakartaSans_600SemiBold,
     PlusJakartaSans_700Bold,
   });
+
+  async function handlePickCover() {
+    try {
+      const uri = await pickImage();
+      if (uri) setCoverUri(uri);
+    } catch (err) {
+      Alert.alert(
+        "Erreur",
+        err instanceof Error ? err.message : "Erreur inconnue",
+      );
+    }
+  }
 
   async function handleSubmit() {
     if (!user) return;
@@ -68,6 +83,18 @@ export default function CreateStoryScreen() {
         maxContributions,
         turnDurationSecs: turnDurationHours * 3600,
       });
+
+      // Upload de la couverture APRÈS création (on a besoin du storyId).
+      if (coverUri) {
+        try {
+          const url = await uploadCoverImage(coverUri, storyId);
+          await updateStoryCover(storyId, url);
+        } catch (coverErr) {
+          // L'histoire est créée ; on n'annule pas juste pour la couverture.
+          console.error("Cover upload failed:", coverErr);
+        }
+      }
+
       router.replace(`/story/${storyId}`);
     } catch (err) {
       Alert.alert(
@@ -95,7 +122,42 @@ export default function CreateStoryScreen() {
         </Text>
 
         <View style={styles.card}>
-          <Text style={styles.label}>TITRE DE L'ŒUVRE</Text>
+          {/* Couverture */}
+          <Text style={styles.label}>IMAGE DE COUVERTURE</Text>
+          <Pressable style={styles.coverPicker} onPress={handlePickCover}>
+            {coverUri ? (
+              <Image
+                source={{ uri: coverUri }}
+                style={styles.coverImage}
+                contentFit="cover"
+                transition={200}
+              />
+            ) : (
+              <View style={styles.coverPlaceholder}>
+                <Ionicons
+                  name="image-outline"
+                  size={28}
+                  color={COLORS.textMuted}
+                />
+                <Text style={styles.coverHint}>
+                  Ajouter une couverture (optionnel)
+                </Text>
+              </View>
+            )}
+          </Pressable>
+          {coverUri && (
+            <Pressable
+              style={styles.coverRemove}
+              onPress={() => setCoverUri(null)}
+            >
+              <Ionicons name="close-circle" size={16} color={COLORS.danger} />
+              <Text style={styles.coverRemoveText}>Retirer l'image</Text>
+            </Pressable>
+          )}
+
+          <Text style={[styles.label, { marginTop: 20 }]}>
+            TITRE DE L'ŒUVRE
+          </Text>
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.input}
@@ -313,6 +375,42 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     color: COLORS.textLabel,
     marginBottom: 8,
+  },
+  coverPicker: {
+    width: "100%",
+    height: 150,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.inputBorder,
+    backgroundColor: COLORS.input,
+    overflow: "hidden",
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
+  },
+  coverPlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  coverHint: {
+    fontFamily: FONTS.sans,
+    fontSize: 13,
+    color: COLORS.textMuted,
+  },
+  coverRemove: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  coverRemoveText: {
+    fontFamily: FONTS.sans,
+    fontSize: 12,
+    color: COLORS.danger,
   },
   inputWrapper: {
     backgroundColor: COLORS.input,

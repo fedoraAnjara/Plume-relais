@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { Story, StoryVisibility } from "../types/models";
+import { updateDoc } from "firebase/firestore";
 
 interface CreateStoryInput {
   title: string;
@@ -34,8 +35,6 @@ export async function createStory(uid: string, input: CreateStoryInput) {
   const paragraphRef = doc(db, "stories", storyRef.id, "paragraphs", "0000");
 
   const turnDurationSecs = input.turnDurationSecs ?? 86400;
-
-  // ⚠️ TEMPORAIRE — debug uniquement, à remplacer par les batches ensuite
 
   console.log("→ writing story", storyRef.id);
   try {
@@ -186,4 +185,8 @@ export function subscribeStory(
       onError?.(err as unknown as Error);
     },
   );
+}
+
+export async function updateStoryCover(storyId: string, coverUrl: string) {
+  await updateDoc(doc(db, "stories", storyId), { coverUrl });
 }
