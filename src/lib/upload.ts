@@ -13,7 +13,7 @@ export async function pickImage(): Promise<string | null> {
   }
 
   const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ["images"], // SDK 54 : MediaTypeOptions est déprécié
+    mediaTypes: ["images"],
     allowsEditing: true,
     aspect: [16, 9],
     quality: 0.7,
@@ -61,7 +61,7 @@ export async function uploadCoverImage(
   } as any);
   formData.append("upload_preset", UPLOAD_PRESET);
   formData.append("folder", `plume-relais/stories/${storyId}`);
-  formData.append("public_id", "cover");
+  formData.append("public_id", `cover_${Date.now()}`);
 
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
@@ -83,6 +83,8 @@ export async function uploadCoverImage(
 
 /**
  * Upload d'un avatar vers Cloudinary, rangé dans avatars/{uid}.
+ * Le public_id inclut un timestamp pour garantir une URL unique à chaque
+ * upload : sans ça, l'URL identique ferait afficher l'ancienne image en cache.
  */
 export async function uploadAvatarImage(
   localUri: string,
@@ -102,7 +104,7 @@ export async function uploadAvatarImage(
   } as any);
   formData.append("upload_preset", UPLOAD_PRESET);
   formData.append("folder", `plume-relais/avatars/${uid}`);
-  formData.append("public_id", "avatar");
+  formData.append("public_id", `avatar_${Date.now()}`);
 
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
