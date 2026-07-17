@@ -52,6 +52,11 @@ service cloud.firestore {
       match /memberships/{storyId} {
         allow read, write: if isSignedIn() && uid == request.auth.uid;
       }
+
+      // Jetons de notifications push : chacun gère les siens.
+      match /pushTokens/{token} {
+        allow read, write: if isSignedIn() && uid == request.auth.uid;
+      }
     }
 
     // ───────────── stories ─────────────
@@ -66,6 +71,7 @@ service cloud.firestore {
                           .hasOnly(['status', 'completedAt', 'currentRound', 'currentRoundId']));
       allow delete: if isOwner(storyId);
 
+      // ── membres ──
       match /members/{uid} {
         allow read: if canViewStory(storyId);
         allow create: if isSignedIn() && (
@@ -82,6 +88,7 @@ service cloud.firestore {
         allow update: if false;
       }
 
+      // ── paragraphes (récit canon) ──
       match /paragraphs/{position} {
         allow read: if canViewStory(storyId) && (
           position == '0000' ||
@@ -89,24 +96,25 @@ service cloud.firestore {
           story(storyId).blindMode == false ||
           hasProposedCurrentRound(storyId)
         );
+        // Ouverture : owner. Suites : tout membre (écrites à la clôture d'un tour).
         allow create: if isSignedIn() && (
           (position == '0000' && isOwner(storyId))
           ||
-          (position != '0000'
-            && isMember(storyId)
-            && get(/databases/$(database)/documents/stories/$(storyId)/rounds/$(story(storyId).currentRoundId)).data.winnerId != null)
+          (position != '0000' && isMember(storyId))
         );
         allow update: if position == '0000' && isOwner(storyId)
                       && story(storyId).status == 'open';
         allow delete: if false;
       }
 
+      // ── tours ──
       match /rounds/{roundId} {
         allow read: if canViewStory(storyId);
         allow create: if isMember(storyId);
-        allow update: if isMember(storyId) && resource.data.status == 'open';
+        allow update: if isMember(storyId);
         allow delete: if false;
 
+        // Registre des votants : un doc par utilisateur = un seul vote par tour.
         match /voters/{voterId} {
           allow read: if isMember(storyId);
           allow create, update: if isSignedIn()
@@ -118,6 +126,7 @@ service cloud.firestore {
             && roundIsOpen(storyId, roundId);
         }
 
+        // ── propositions ──
         match /proposals/{authorId} {
           allow read: if isMember(storyId)
             || (resource.data.status != 'pending' && canViewStory(storyId));
@@ -125,18 +134,12 @@ service cloud.firestore {
             && authorId == request.auth.uid
             && isMember(storyId)
             && roundIsOpen(storyId, roundId);
-          allow update: if isSignedIn() && (
-            (authorId == request.auth.uid
-              && roundIsOpen(storyId, roundId)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'createdAt']))
-            ||
-            (isMember(storyId)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'voteCount']))
-          );
+          allow update: if isSignedIn() && isMember(storyId);
           allow delete: if false;
         }
       }
 
+      // ── réactions ──
       match /reactions/{reactionId} {
         allow read: if canViewStory(storyId);
         allow create: if isSignedIn()
@@ -146,6 +149,7 @@ service cloud.firestore {
         allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       }
 
+      // ── commentaires ──
       match /comments/{commentId} {
         allow read: if canViewStory(storyId);
         allow create: if isSignedIn()
@@ -156,6 +160,7 @@ service cloud.firestore {
       }
     }
 
+    // ───────────── notifications ─────────────
     match /notifications/{notifId} {
       allow read, update, delete: if isSignedIn()
         && resource.data.userId == request.auth.uid;
