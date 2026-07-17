@@ -15,7 +15,6 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
-import { registerForPushNotifications } from "../lib/pushTokens";
 
 interface AuthContextValue {
   user: User | null;
@@ -35,12 +34,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (initializing) setInitializing(false);
-
-      if (u) {
-        registerForPushNotifications(u.uid).catch((err) =>
-          console.error("registerForPushNotifications failed:", err),
-        );
-      }
     });
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
