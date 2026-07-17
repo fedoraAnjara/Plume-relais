@@ -139,8 +139,9 @@ export function subscribeMyVote(
   return onSnapshot(
     doc(db, "stories", storyId, "rounds", roundId, "voters", voterId),
     (snap) => callback(snap.exists() ? (snap.data().proposalId ?? null) : null),
-    (err) => {
-      console.error("subscribeMyVote error:", err);
+    (err: any) => {
+      if (err?.code === "permission-denied") return;
+      console.warn("subscribeMyVote error:", err);
       onError?.(err as unknown as Error);
     },
   );

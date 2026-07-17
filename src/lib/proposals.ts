@@ -60,8 +60,11 @@ export function subscribeProposals(
         snap.docs.map((d) => ({ authorId: d.id, ...(d.data() as any) })),
       );
     },
-    (err) => {
-      console.error("subscribeProposals error:", err);
+    (err: any) => {
+      // permission-denied est transitoire au moment de rejoindre une histoire
+      // (l'adhésion n'est pas encore propagée côté serveur). On l'ignore.
+      if (err?.code === "permission-denied") return;
+      console.warn("subscribeProposals error:", err);
       onError?.(err as unknown as Error);
     },
   );
