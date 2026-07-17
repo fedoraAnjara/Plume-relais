@@ -1,0 +1,32 @@
+{
+  "cli": {
+    "version": ">= 21.0.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDws8B_deU9_tocITScrvx_5xFg6Cq73uc",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "plumerelais-d2bd8.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "plumerelais-d2bd8",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "plumerelais-d2bd8.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_SENDER_ID": "916604197807",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:916604197807:web:79a08ed22dc234a5836d5a",
+        "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME": "uf5armnw",
+        "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET": "plume-relais"
+      }
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
