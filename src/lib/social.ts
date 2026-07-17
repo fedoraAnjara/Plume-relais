@@ -8,6 +8,8 @@ import {
   query,
   orderBy,
   type Unsubscribe,
+  getDoc,
+  setDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -25,16 +27,24 @@ export interface Comment {
   createdAt: any;
 }
 
-export async function addReaction(storyId: string, uid: string, emoji: string) {
-  await addDoc(collection(db, "stories", storyId, "reactions"), {
-    userId: uid,
-    emoji,
-    createdAt: serverTimestamp(),
-  });
-}
+export async function toggleReaction(
+  storyId: string,
+  uid: string,
+  emoji: string,
+) {
+  const reactionId = `${uid}_${emoji}`;
+  const ref = doc(db, "stories", storyId, "reactions", reactionId);
+  const snap = await getDoc(ref);
 
-export async function removeReaction(storyId: string, reactionId: string) {
-  await deleteDoc(doc(db, "stories", storyId, "reactions", reactionId));
+  if (snap.exists()) {
+    await deleteDoc(ref); // si deja réagi → on retire
+  } else {
+    await setDoc(ref, {
+      userId: uid,
+      emoji,
+      createdAt: serverTimestamp(),
+    });
+  }
 }
 
 export function subscribeReactions(
