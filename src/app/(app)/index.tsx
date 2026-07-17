@@ -42,7 +42,12 @@ export default function FeedScreen() {
             onPress={() => setTab(t)}
             style={[styles.tab, tab === t && styles.tabActive]}
           >
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
+            <Text
+              style={[styles.tabText, tab === t && styles.tabTextActive]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
               {t === "mine"
                 ? "Mes histoires"
                 : t === "open"
@@ -120,11 +125,13 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     paddingVertical: 10,
+    paddingHorizontal: 6,
     borderRadius: 10,
     backgroundColor: "#18152280",
     borderWidth: 1,
     borderColor: COLORS.inputBorder,
     alignItems: "center",
+    justifyContent: "center",
   },
   tabActive: {
     backgroundColor: COLORS.purpleSoft,
@@ -134,6 +141,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.sansSemi,
     fontSize: 12,
     color: COLORS.textMuted,
+    textAlign: "center",
   },
   tabTextActive: {
     color: COLORS.white,
