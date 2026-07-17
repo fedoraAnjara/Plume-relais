@@ -66,6 +66,8 @@ export default function AppLayout() {
       />
       {/* Écran de détail : caché de la tab bar */}
       <Tabs.Screen name="story/[id]" options={{ href: null }} />
+      {/* Écran notifications : caché de la tab bar */}
+      <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   );
 }
