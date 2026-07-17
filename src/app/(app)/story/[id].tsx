@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import {
   useFonts,
   PlayfairDisplay_700Bold,
@@ -36,7 +37,7 @@ import { submitProposal } from "../../../lib/proposals";
 import { castVote } from "../../../lib/votes";
 import { closeRoundIfExpired } from "../../../lib/rounds";
 import {
-  addReaction,
+  toggleReaction,
   subscribeReactions,
   addComment,
   subscribeComments,
@@ -104,17 +105,19 @@ export default function StoryScreen() {
     return subscribeParagraph(id, "0000", setOpeningParagraph);
   }, [id]);
 
+  // Le récit canon complet n'est visible qu'après avoir proposé (mode aveugle),
+  // ou si l'histoire est terminée, ou si le mode aveugle est désactivé. (§4.5)
   const canSeeAll =
     !!story &&
     (story.status === "completed" || !story.blindMode || hasProposed);
 
   useEffect(() => {
-    if (!id || !canSeeAll) {
+    if (!id || roundLoading || !canSeeAll) {
       setAllParagraphs(null);
       return;
     }
     return subscribeAllParagraphs(id, setAllParagraphs);
-  }, [id, canSeeAll]);
+  }, [id, roundLoading, canSeeAll]);
 
   useEffect(() => {
     if (!id || story?.status !== "completed") return;
@@ -130,6 +133,14 @@ export default function StoryScreen() {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Pré-remplit le champ avec la proposition existante pour permettre l'édition.
+  // Sans ça, value et onChangeText divergent et le champ semble non éditable.
+  useEffect(() => {
+    if (hasProposed && myProposal) {
+      setProposalText(myProposal.content);
+    }
+  }, [hasProposed, myProposal?.content]);
 
   const authorIds = [
     ...(allParagraphs?.map((p) => p.authorId) ?? []),
@@ -188,7 +199,6 @@ export default function StoryScreen() {
         proposalText.trim(),
         story.title,
       );
-      setProposalText("");
     } catch (err) {
       Alert.alert(
         "Erreur",
@@ -199,8 +209,6 @@ export default function StoryScreen() {
     }
   }
 
-  // Option 2 (registre voters/) : castVote lit le registre lui-même,
-  // plus besoin de passer le vote précédent.
   async function handleVote(authorId: string) {
     if (!uid || !id || !story?.currentRoundId) return;
     try {
@@ -228,7 +236,7 @@ export default function StoryScreen() {
   async function handleReact(emoji: string) {
     if (!uid || !id) return;
     try {
-      await addReaction(id, uid, emoji);
+      await toggleReaction(id, uid, emoji);
     } catch (err) {
       Alert.alert(
         "Erreur",
@@ -285,12 +293,31 @@ export default function StoryScreen() {
       : null;
   const writerTimeUp = writerSecondsLeft !== null && writerSecondsLeft <= 0;
 
-  const showProposalContent = hasProposed || story.status === "completed";
-  const topVoteCount = showProposalContent
-    ? Math.max(0, ...proposals.map((p) => p.voteCount))
-    : -1;
+  // Les propositions du tour en cours sont toujours consultables pour voter
+  // (§4.3). Seul le récit canon complet reste masqué en mode aveugle (§4.5).
+  const topVoteCount =
+    proposals.length > 0
+      ? Math.max(0, ...proposals.map((p) => p.voteCount))
+      : -1;
 
-  const remainingChars = MAX_PROPOSAL_LENGTH - proposalText.length;
+  // Emojis sur lesquels l'utilisateur courant a déjà réagi.
+  const myReactedEmojis = new Set(
+    reactions.filter((r) => r.userId === uid).map((r) => r.emoji),
+  );
+
+  // Temps restant avant clôture du tour. (§4.4)
+  const roundSecondsLeft = round
+    ? Math.max(0, Math.floor((round.closesAt - now) / 1000))
+    : null;
+
+  function formatCountdown(totalSeconds: number): string {
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    if (h > 0) return `${h}h ${m}min`;
+    if (m > 0) return `${m}min ${s}s`;
+    return `${s}s`;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -299,6 +326,18 @@ export default function StoryScreen() {
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Couverture */}
+        {story.coverUrl && (
+          <View style={styles.coverWrapper}>
+            <Image
+              source={{ uri: story.coverUrl }}
+              style={styles.cover}
+              contentFit="cover"
+              transition={200}
+            />
+          </View>
+        )}
+
         {/* Story id + titre */}
         <Text style={styles.storyId}>
           STORY ID: #{story.id?.slice(-4) ?? "----"}
@@ -335,6 +374,27 @@ export default function StoryScreen() {
             </Text>
           </Pressable>
         </View>
+
+        {/* Compte à rebours du tour (§4.4) */}
+        {story.status === "open" && roundSecondsLeft !== null && (
+          <View style={styles.countdownRow}>
+            <Ionicons
+              name="time-outline"
+              size={14}
+              color={roundExpired ? COLORS.danger : COLORS.gold}
+            />
+            <Text
+              style={[
+                styles.countdownText,
+                roundExpired && { color: COLORS.danger },
+              ]}
+            >
+              {roundExpired
+                ? "Tour expiré — en attente de clôture"
+                : `Temps restant : ${formatCountdown(roundSecondsLeft)}`}
+            </Text>
+          </View>
+        )}
 
         {!isMember &&
           story.visibility === "public" &&
@@ -413,7 +473,7 @@ export default function StoryScreen() {
               <View style={styles.textareaWrapper}>
                 <TextInput
                   style={styles.textarea}
-                  value={hasProposed ? myProposal?.content : proposalText}
+                  value={proposalText}
                   onChangeText={setProposalText}
                   editable={round?.status === "open" && !writerTimeUp}
                   multiline
@@ -422,10 +482,7 @@ export default function StoryScreen() {
                   placeholderTextColor={COLORS.textMuted}
                 />
                 <Text style={styles.charCount}>
-                  {hasProposed
-                    ? (myProposal?.content.length ?? 0)
-                    : proposalText.length}{" "}
-                  / {MAX_PROPOSAL_LENGTH}
+                  {proposalText.length} / {MAX_PROPOSAL_LENGTH}
                 </Text>
               </View>
 
@@ -475,10 +532,7 @@ export default function StoryScreen() {
               <ActivityIndicator color={COLORS.gold} />
             ) : (
               proposals.map((p) => {
-                const isTop =
-                  showProposalContent &&
-                  topVoteCount > 0 &&
-                  p.voteCount === topVoteCount;
+                const isTop = topVoteCount > 0 && p.voteCount === topVoteCount;
                 const username = profiles[p.authorId]?.username ?? "Anonyme";
                 return (
                   <View key={p.authorId} style={styles.proposalCard}>
@@ -499,14 +553,7 @@ export default function StoryScreen() {
                       )}
                     </View>
 
-                    <Text
-                      style={styles.proposalContent}
-                      numberOfLines={showProposalContent ? undefined : 2}
-                    >
-                      {showProposalContent
-                        ? p.content
-                        : "Contenu masqué jusqu'à la clôture du vote"}
-                    </Text>
+                    <Text style={styles.proposalContent}>{p.content}</Text>
 
                     <View style={styles.proposalFooterRow}>
                       <View style={styles.voteCountRow}>
@@ -562,17 +609,26 @@ export default function StoryScreen() {
         {story.status === "completed" && (
           <>
             <View style={styles.reactionRow}>
-              {REACTION_EMOJIS.map((emoji) => (
-                <Pressable
-                  key={emoji}
-                  style={styles.reactionButton}
-                  onPress={() => handleReact(emoji)}
-                >
-                  <Text style={styles.reactionText}>
-                    {emoji} {reactions.filter((r) => r.emoji === emoji).length}
-                  </Text>
-                </Pressable>
-              ))}
+              {REACTION_EMOJIS.map((emoji) => {
+                const count = reactions.filter(
+                  (r) => r.emoji === emoji,
+                ).length;
+                const active = myReactedEmojis.has(emoji);
+                return (
+                  <Pressable
+                    key={emoji}
+                    style={[
+                      styles.reactionButton,
+                      active && styles.reactionButtonActive,
+                    ]}
+                    onPress={() => handleReact(emoji)}
+                  >
+                    <Text style={styles.reactionText}>
+                      {emoji} {count}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
             <Text style={styles.sectionTitleLarge}>
@@ -626,6 +682,19 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
+  coverWrapper: {
+    width: "100%",
+    height: 160,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  cover: {
+    width: "100%",
+    height: "100%",
+  },
+
   storyId: {
     fontFamily: FONTS.mono,
     fontSize: 11,
@@ -646,7 +715,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   tourBadge: {
     backgroundColor: COLORS.purpleSoft,
@@ -669,6 +738,18 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.serifItalic,
     fontSize: 12,
     color: COLORS.textMuted,
+  },
+
+  countdownRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 16,
+  },
+  countdownText: {
+    fontFamily: FONTS.mono,
+    fontSize: 12,
+    color: COLORS.gold,
   },
 
   card: {
@@ -906,6 +987,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
+  },
+  reactionButtonActive: {
+    borderColor: COLORS.gold,
+    backgroundColor: COLORS.purpleSoft,
   },
   reactionText: {
     fontFamily: FONTS.sans,
